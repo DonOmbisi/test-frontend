@@ -194,15 +194,15 @@ import { CommonModule } from '@angular/common';
 
               <!-- Success Actions -->
               <div class="success-actions" *ngIf="conversionResult.success">
-                <button mat-stroked-button color="primary" class="action-button">
+                <button mat-stroked-button color="primary" class="action-button" (click)="downloadCsv()">
                   <mat-icon>download</mat-icon>
                   Download CSV
                 </button>
-                <button mat-stroked-button color="accent" class="action-button">
+                <button mat-stroked-button color="accent" class="action-button" (click)="shareResults()">
                   <mat-icon>share</mat-icon>
                   Share Results
                 </button>
-                <button mat-stroked-button color="warn" class="action-button">
+                <button mat-stroked-button color="warn" class="action-button" (click)="clearResults()">
                   <mat-icon>delete</mat-icon>
                   Clear Results
                 </button>
@@ -976,5 +976,109 @@ export class DataProcessingComponent {
           });
         }
       });
+  }
+
+  downloadCsv() {
+    if (this.conversionResult && this.conversionResult.csvFilePath) {
+      const filePath = this.conversionResult.csvFilePath;
+      // Extract just the filename from the path, handling both Windows and Unix paths
+      let fileName = filePath;
+      if (filePath.includes('/')) {
+        fileName = filePath.split('/').pop() || 'converted.csv';
+      } else if (filePath.includes('\\')) {
+        fileName = filePath.split('\\').pop() || 'converted.csv';
+      }
+      
+      this.http.get(`http://localhost:8081/api/data-processing/download/${encodeURIComponent(fileName)}`, { responseType: 'blob' })
+        .subscribe({
+          next: (response: Blob) => {
+            const blob = new Blob([response], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            this.snackBar.open(`CSV file "${fileName}" downloaded successfully!`, 'Close', {
+              duration: 5000,
+              horizontalPosition: 'center',
+              verticalPosition: 'bottom',
+              panelClass: ['success-snackbar']
+            });
+          },
+          error: (error) => {
+            this.snackBar.open('Error downloading CSV file: ' + error.message, 'Close', {
+              duration: 5000,
+              horizontalPosition: 'center',
+              verticalPosition: 'bottom',
+              panelClass: ['error-snackbar']
+            });
+          }
+        });
+    } else {
+      this.snackBar.open('No CSV file available to download. Please process a file first.', 'Close', {
+        duration: 5000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['info-snackbar']
+      });
+    }
+  }
+
+  shareResults() {
+    if (this.conversionResult && this.conversionResult.success) {
+      // Create a shareable summary
+      const summary = {
+        status: 'Success',
+        message: this.conversionResult.message,
+        filePath: this.conversionResult.csvFilePath,
+        timestamp: new Date().toISOString()
+      };
+      
+      // Copy to clipboard
+      navigator.clipboard.writeText(JSON.stringify(summary, null, 2)).then(() => {
+        this.snackBar.open('Results copied to clipboard!', 'Close', {
+          duration: 3000,
+          horizontalPosition: 'center',
+          verticalPosition: 'bottom',
+          panelClass: ['success-snackbar']
+        });
+      }).catch(() => {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = JSON.stringify(summary, null, 2);
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        this.snackBar.open('Results copied to clipboard!', 'Close', {
+          duration: 3000,
+          horizontalPosition: 'center',
+          verticalPosition: 'bottom',
+          panelClass: ['success-snackbar']
+        });
+      });
+    } else {
+      this.snackBar.open('No successful results to share. Please process a file first.', 'Close', {
+        duration: 5000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['info-snackbar']
+      });
+    }
+  }
+
+  clearResults() {
+    this.conversionResult = null;
+    this.selectedFile = null;
+    this.snackBar.open('Results cleared', 'Close', {
+      duration: 2000,
+      horizontalPosition: 'center',
+      verticalPosition: 'bottom'
+    });
   }
 }

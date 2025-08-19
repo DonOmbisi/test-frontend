@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -219,7 +219,7 @@ import { FormsModule } from '@angular/forms';
                   <mat-icon>visibility</mat-icon>
                   View Records
                 </button>
-                <button mat-stroked-button color="accent" class="action-button">
+                <button mat-stroked-button color="accent" class="action-button" (click)="exportData()">
                   <mat-icon>download</mat-icon>
                   Export Data
                 </button>
@@ -282,13 +282,13 @@ import { FormsModule } from '@angular/forms';
               <div class="search-controls">
                 <mat-form-field class="search-field">
                   <mat-label>Search Students</mat-label>
-                  <input matInput [(ngModel)]="searchTerm" placeholder="Search by name, ID, or class...">
+                  <input matInput [(ngModel)]="searchTerm" placeholder="Search by name, ID, or class..." (ngModelChange)="onSearchChange()">
                   <mat-icon matSuffix>search</mat-icon>
                 </mat-form-field>
 
                 <mat-form-field class="filter-field">
                   <mat-label>Filter by Class</mat-label>
-                  <mat-select [(ngModel)]="selectedClass">
+                  <mat-select [(ngModel)]="selectedClass" (selectionChange)="onClassChange()">
                     <mat-option value="">All Classes</mat-option>
                     <mat-option *ngFor="let class of uniqueClasses" [value]="class">
                       {{ class }}
@@ -1105,7 +1105,7 @@ import { FormsModule } from '@angular/forms';
     }
   `]
 })
-export class DatabaseComponent {
+export class DatabaseComponent implements OnInit {
   selectedFile: File | null = null;
   isUploading = false;
   uploadResult: any = null;
@@ -1300,6 +1300,69 @@ export class DatabaseComponent {
       const matchesClass = !this.selectedClass || student.className === this.selectedClass;
       
       return matchesSearch && matchesClass;
+    });
+  }
+
+  // Add watchers for search and class filtering
+  ngOnInit() {
+    // Watch for changes in search term and class selection
+    this.searchTerm = '';
+    this.selectedClass = '';
+    this.filterStudents();
+  }
+
+  // Method to handle search term changes
+  onSearchChange() {
+    this.filterStudents();
+  }
+
+  // Method to handle class selection changes
+  onClassChange() {
+    this.filterStudents();
+  }
+
+  // Method to export data
+  exportData() {
+    if (this.students.length === 0) {
+      this.snackBar.open('No data available to export', 'Close', {
+        duration: 3000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['info-snackbar']
+      });
+      return;
+    }
+
+    // Create CSV content
+    const headers = ['Student ID', 'First Name', 'Last Name', 'Date of Birth', 'Class', 'Score'];
+    const csvContent = [
+      headers.join(','),
+      ...this.students.map(student => [
+        student.studentId,
+        `"${student.firstName}"`,
+        `"${student.lastName}"`,
+        student.dob,
+        `"${student.className}"`,
+        student.score
+      ].join(','))
+    ].join('\n');
+
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `students_export_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    this.snackBar.open('Data exported successfully!', 'Close', {
+      duration: 3000,
+      horizontalPosition: 'center',
+      verticalPosition: 'bottom',
+      panelClass: ['success-snackbar']
     });
   }
 }

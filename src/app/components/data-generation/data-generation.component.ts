@@ -130,13 +130,13 @@ import { CommonModule } from '@angular/common';
                 
                 <button
                   mat-stroked-button
-                  color="warn"
+                  color="accent"
                   type="button"
-                  (click)="runPerformanceTest()"
+                  (click)="runQuickPerformanceTest()"
                   [disabled]="isGenerating"
-                  class="performance-button">
-                  <mat-icon>speed</mat-icon>
-                  Performance Test
+                  class="quick-performance-button">
+                  <mat-icon>flash_on</mat-icon>
+                  Quick Test
                 </button>
               </div>
             </form>
@@ -189,11 +189,11 @@ import { CommonModule } from '@angular/common';
 
               <!-- Success Actions -->
               <div class="success-actions" *ngIf="generationResult.success">
-                <button mat-stroked-button color="primary" class="action-button">
+                <button mat-stroked-button color="primary" class="action-button" (click)="downloadFile()">
                   <mat-icon>download</mat-icon>
                   Download File
                 </button>
-                <button mat-stroked-button color="accent" class="action-button">
+                <button mat-stroked-button color="accent" class="action-button" (click)="shareResults()">
                   <mat-icon>share</mat-icon>
                   Share Results
                 </button>
@@ -477,7 +477,7 @@ import { CommonModule } from '@angular/common';
       box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
     }
 
-    .performance-button {
+    .quick-performance-button {
       padding: 16px 32px;
       font-size: 16px;
       font-weight: 500;
@@ -486,7 +486,7 @@ import { CommonModule } from '@angular/common';
       transition: all 0.3s ease;
     }
 
-    .performance-button:hover:not(:disabled) {
+    .quick-performance-button:hover:not(:disabled) {
       transform: translateY(-2px);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
@@ -798,21 +798,21 @@ export class DataGenerationComponent {
       });
   }
 
-  runPerformanceTest() {
+  runQuickPerformanceTest() {
     this.isGenerating = true;
     this.generationResult = null;
 
-    this.http.post('http://localhost:8081/api/data-generation/performance-test', {})
+    this.http.post('http://localhost:8081/api/data-generation/quick-performance-test', {})
       .subscribe({
         next: (response: any) => {
           if (response.success) {
             this.generationResult = {
               success: true,
-              message: 'Performance test completed successfully',
+              message: 'Quick performance test completed successfully',
               performanceResults: response
             };
             
-            this.snackBar.open('Performance test completed!', 'Close', {
+            this.snackBar.open('Quick performance test completed!', 'Close', {
               duration: 5000,
               horizontalPosition: 'center',
               verticalPosition: 'bottom',
@@ -821,7 +821,7 @@ export class DataGenerationComponent {
           } else {
             this.generationResult = {
               success: false,
-              message: 'Performance test failed: ' + response.message
+              message: 'Quick performance test failed: ' + response.message
             };
           }
           this.isGenerating = false;
@@ -829,11 +829,11 @@ export class DataGenerationComponent {
         error: (error: any) => {
           this.generationResult = {
             success: false,
-            message: 'Error running performance test: ' + error.message
+            message: 'Error running quick performance test: ' + error.message
           };
           this.isGenerating = false;
           
-          this.snackBar.open('Error running performance test', 'Close', {
+          this.snackBar.open('Error running quick performance test', 'Close', {
             duration: 5000,
             horizontalPosition: 'center',
             verticalPosition: 'bottom',
@@ -841,5 +841,230 @@ export class DataGenerationComponent {
           });
         }
       });
+  }
+
+  downloadFile() {
+    if (this.generationResult && this.generationResult.filePath) {
+      const filePath = this.generationResult.filePath;
+      // Extract just the filename from the path, handling both Windows and Unix paths
+      let fileName = filePath;
+      if (filePath.includes('/')) {
+        fileName = filePath.split('/').pop() || 'data.xlsx';
+      } else if (filePath.includes('\\')) {
+        fileName = filePath.split('\\').pop() || 'data.xlsx';
+      }
+      
+      this.http.get(`http://localhost:8081/api/data-generation/download/${encodeURIComponent(fileName)}`, { responseType: 'blob' })
+        .subscribe({
+          next: (response: Blob) => {
+            const blob = new Blob([response], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            this.snackBar.open(`File "${fileName}" downloaded successfully!`, 'Close', {
+              duration: 5000,
+              horizontalPosition: 'center',
+              verticalPosition: 'bottom',
+              panelClass: ['success-snackbar']
+            });
+          },
+          error: (error) => {
+            this.snackBar.open('Error downloading file: ' + error.message, 'Close', {
+              duration: 5000,
+              horizontalPosition: 'center',
+              verticalPosition: 'bottom',
+              panelClass: ['error-snackbar']
+            });
+          }
+        });
+    } else if (this.generationResult && this.generationResult.performanceResults) {
+      // Handle quick performance test results - show available files
+      const performanceResults = this.generationResult.performanceResults;
+      const availableFiles = [];
+      
+      for (const key in performanceResults) {
+        if (key.startsWith('test_') && performanceResults[key].filePath) {
+          const testSize = key.replace('test_', '');
+          const filePath = performanceResults[key].filePath;
+          let fileName = filePath;
+          if (filePath.includes('/')) {
+            fileName = filePath.split('/').pop() || 'data.xlsx';
+          } else if (filePath.includes('\\')) {
+            fileName = filePath.split('\\').pop() || 'data.xlsx';
+          }
+          availableFiles.push({ size: testSize, fileName: fileName, filePath: performanceResults[key].filePath });
+        }
+      }
+      
+      if (availableFiles.length > 0) {
+        // Download the largest file (last one)
+        const largestFile = availableFiles[availableFiles.length - 1];
+        if (largestFile) {
+          const fileName = largestFile.fileName;
+          
+          this.http.get(`http://localhost:8081/api/data-generation/download/${encodeURIComponent(fileName)}`, { responseType: 'blob' })
+            .subscribe({
+              next: (response: Blob) => {
+                const blob = new Blob([response], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                this.snackBar.open(`File "${fileName}" (${largestFile.size} records) downloaded successfully!`, 'Close', {
+                  duration: 5000,
+                  horizontalPosition: 'center',
+                  verticalPosition: 'bottom',
+                  panelClass: ['success-snackbar']
+                });
+              },
+              error: (error) => {
+                this.snackBar.open('Error downloading file: ' + error.message, 'Close', {
+                  duration: 5000,
+                  horizontalPosition: 'center',
+                  verticalPosition: 'bottom',
+                  panelClass: ['error-snackbar']
+                });
+              }
+            });
+        }
+      } else {
+        this.snackBar.open('No files available to download from performance test.', 'Close', {
+          duration: 5000,
+          horizontalPosition: 'center',
+          verticalPosition: 'bottom',
+          panelClass: ['info-snackbar']
+        });
+      }
+    } else {
+      this.snackBar.open('No file path available to download.', 'Close', {
+        duration: 5000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['info-snackbar']
+      });
+    }
+  }
+
+  shareResults() {
+    if (this.generationResult && this.generationResult.filePath) {
+      const filePath = this.generationResult.filePath;
+      const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'data.xlsx';
+      const url = `${window.location.origin}/api/data-generation/download/${encodeURIComponent(fileName)}`;
+
+      const shareData = {
+        title: 'Generated Student Data',
+        text: `Check out the generated student data file: ${fileName}`,
+        url: url
+      };
+
+      if (navigator.share) {
+        navigator.share(shareData)
+          .then(() => {
+            this.snackBar.open('Data shared successfully!', 'Close', {
+              duration: 5000,
+              horizontalPosition: 'center',
+              verticalPosition: 'bottom',
+              panelClass: ['success-snackbar']
+            });
+          })
+          .catch((error) => {
+            this.snackBar.open('Error sharing data: ' + error.message, 'Close', {
+              duration: 5000,
+              horizontalPosition: 'center',
+              verticalPosition: 'bottom',
+              panelClass: ['error-snackbar']
+            });
+          });
+      } else {
+        this.snackBar.open('Web Share API not supported in your browser.', 'Close', {
+          duration: 5000,
+          horizontalPosition: 'center',
+          verticalPosition: 'bottom',
+          panelClass: ['info-snackbar']
+        });
+      }
+    } else if (this.generationResult && this.generationResult.performanceResults) {
+      // Handle quick performance test results - show available files
+      const performanceResults = this.generationResult.performanceResults;
+      const availableFiles = [];
+      
+      for (const key in performanceResults) {
+        if (key.startsWith('test_') && performanceResults[key].filePath) {
+          const testSize = key.replace('test_', '');
+          const filePath = performanceResults[key].filePath;
+          let fileName = filePath;
+          if (filePath.includes('/')) {
+            fileName = filePath.split('/').pop() || 'data.xlsx';
+          } else if (filePath.includes('\\')) {
+            fileName = filePath.split('\\').pop() || 'data.xlsx';
+          }
+          availableFiles.push({ size: testSize, fileName: fileName, filePath: performanceResults[key].filePath });
+        }
+      }
+      
+      if (availableFiles.length > 0) {
+        const largestFile = availableFiles[availableFiles.length - 1];
+        if (largestFile) {
+          const fileName = largestFile.fileName;
+          const url = `${window.location.origin}/api/data-generation/download/${encodeURIComponent(fileName)}`;
+
+          const shareData = {
+            title: 'Generated Student Data',
+            text: `Check out the generated student data file (${largestFile.size} records): ${fileName}`,
+            url: url
+          };
+
+          if (navigator.share) {
+            navigator.share(shareData)
+              .then(() => {
+                this.snackBar.open('Data shared successfully!', 'Close', {
+                  duration: 5000,
+                  horizontalPosition: 'center',
+                  verticalPosition: 'bottom',
+                  panelClass: ['success-snackbar']
+                });
+              })
+              .catch((error) => {
+                this.snackBar.open('Error sharing data: ' + error.message, 'Close', {
+                  duration: 5000,
+                  horizontalPosition: 'center',
+                  verticalPosition: 'bottom',
+                  panelClass: ['error-snackbar']
+                });
+              });
+          } else {
+            this.snackBar.open('Web Share API not supported in your browser.', 'Close', {
+              duration: 5000,
+              horizontalPosition: 'center',
+              verticalPosition: 'bottom',
+              panelClass: ['info-snackbar']
+            });
+          }
+        }
+      } else {
+        this.snackBar.open('No files available to share from performance test.', 'Close', {
+          duration: 5000,
+          horizontalPosition: 'center',
+          verticalPosition: 'bottom',
+          panelClass: ['info-snackbar']
+        });
+      }
+    } else {
+      this.snackBar.open('No file path available to share.', 'Close', {
+        duration: 5000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['info-snackbar']
+      });
+    }
   }
 }

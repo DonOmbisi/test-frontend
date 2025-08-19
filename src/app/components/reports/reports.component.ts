@@ -25,8 +25,8 @@ interface Student {
 interface ReportRequest {
   page: number;
   size: number;
-  studentId?: number;
-  className?: string;
+  studentId?: number | undefined;
+  className?: string | undefined;
 }
 
 @Component({
@@ -59,7 +59,10 @@ interface ReportRequest {
             <div class="filter-row">
               <mat-form-field appearance="outline">
                 <mat-label>Student ID</mat-label>
-                <input matInput formControlName="studentId" placeholder="Search by Student ID">
+                <input matInput formControlName="studentId" placeholder="Search by Student ID" type="number" min="1">
+                <mat-error *ngIf="filterForm.get('studentId')?.errors?.['invalidStudentId']">
+                  Please enter a valid Student ID (positive number)
+                </mat-error>
               </mat-form-field>
     
               <mat-form-field appearance="outline">
@@ -304,9 +307,21 @@ export class ReportsComponent implements OnInit {
     private snackBar: MatSnackBar
   ) {
     this.filterForm = this.fb.group({
-      studentId: [''],
+      studentId: ['', [this.validateStudentId.bind(this)]],
       className: ['']
     });
+  }
+
+  // Custom validator for studentId
+  private validateStudentId(control: any) {
+    const value = control.value;
+    if (!value) return null; // Allow empty values
+    
+    const numValue = Number(value);
+    if (isNaN(numValue) || numValue <= 0) {
+      return { invalidStudentId: true };
+    }
+    return null;
   }
 
   ngOnInit() {
@@ -314,6 +329,16 @@ export class ReportsComponent implements OnInit {
   }
 
   applyFilters() {
+    if (this.filterForm.invalid) {
+      this.snackBar.open('Please fix the form errors before applying filters', 'Close', {
+        duration: 3000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['error-snackbar']
+      });
+      return;
+    }
+    
     this.currentPage = 0;
     this.loadStudents();
   }
@@ -321,17 +346,21 @@ export class ReportsComponent implements OnInit {
   loadStudents() {
     this.isLoading = true;
     
+    // Only add studentId if it's a valid number
+    const studentIdValue = this.filterForm.value.studentId;
+    const studentId = studentIdValue && !isNaN(Number(studentIdValue)) ? Number(studentIdValue) : undefined;
+    
     const request: ReportRequest = {
       page: this.currentPage,
       size: this.pageSize,
-      studentId: this.filterForm.value.studentId || undefined,
+      studentId: studentId,
       className: this.filterForm.value.className || undefined
     };
 
     const params = new URLSearchParams();
     params.set('page', request.page.toString());
     params.set('size', request.size.toString());
-    if (request.studentId) params.set('studentId', request.studentId.toString());
+    if (request.studentId !== undefined) params.set('studentId', request.studentId.toString());
     if (request.className) params.set('className', request.className);
 
     this.http.get(`http://localhost:8081/api/reports/students?${params.toString()}`)
@@ -364,24 +393,55 @@ export class ReportsComponent implements OnInit {
   }
 
   exportToExcel() {
+    if (this.filterForm.invalid) {
+      this.snackBar.open('Please fix the form errors before exporting', 'Close', {
+        duration: 3000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['error-snackbar']
+      });
+      return;
+    }
     this.exportData('excel');
   }
 
   exportToCsv() {
+    if (this.filterForm.invalid) {
+      this.snackBar.open('Please fix the form errors before exporting', 'Close', {
+        duration: 3000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['error-snackbar']
+      });
+      return;
+    }
     this.exportData('csv');
   }
 
   exportToPdf() {
+    if (this.filterForm.invalid) {
+      this.snackBar.open('Please fix the form errors before exporting', 'Close', {
+        duration: 3000,
+        horizontalPosition: 'center',
+        verticalPosition: 'bottom',
+        panelClass: ['error-snackbar']
+      });
+      return;
+    }
     this.exportData('pdf');
   }
 
   private exportData(format: string) {
     this.isExporting = true;
     
+    // Only add studentId if it's a valid number
+    const studentIdValue = this.filterForm.value.studentId;
+    const studentId = studentIdValue && !isNaN(Number(studentIdValue)) ? Number(studentIdValue) : undefined;
+    
     const request: ReportRequest = {
       page: this.currentPage,
       size: this.pageSize,
-      studentId: this.filterForm.value.studentId || undefined,
+      studentId: studentId,
       className: this.filterForm.value.className || undefined
     };
 
@@ -389,6 +449,8 @@ export class ReportsComponent implements OnInit {
       .subscribe({
         next: (response: any) => {
           if (response.success) {
+            // Download the generated file
+            this.downloadFile(response.filePath, format);
             this.snackBar.open(`${format.toUpperCase()} report generated successfully!`, 'Close', {
               duration: 5000,
               horizontalPosition: 'center',
@@ -412,6 +474,51 @@ export class ReportsComponent implements OnInit {
             panelClass: ['error-snackbar']
           });
           this.isExporting = false;
+        }
+      });
+  }
+
+  private downloadFile(filePath: string, format: string) {
+    const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || `report.${format}`;
+    
+    this.http.get(`http://localhost:8081/api/reports/download/${encodeURIComponent(fileName)}`, { responseType: 'blob' })
+      .subscribe({
+        next: (response: Blob) => {
+          let mimeType = 'application/octet-stream';
+          let fileExtension = format;
+          
+          switch (format) {
+            case 'excel':
+              mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+              fileExtension = 'xlsx';
+              break;
+            case 'csv':
+              mimeType = 'text/csv';
+              fileExtension = 'csv';
+              break;
+            case 'pdf':
+              mimeType = 'application/pdf';
+              fileExtension = 'pdf';
+              break;
+          }
+          
+          const blob = new Blob([response], { type: mimeType });
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileName.endsWith(`.${fileExtension}`) ? fileName : `${fileName}.${fileExtension}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+        },
+        error: (error) => {
+          this.snackBar.open(`Error downloading ${format.toUpperCase()} file: ${error.message}`, 'Close', {
+            duration: 5000,
+            horizontalPosition: 'center',
+            verticalPosition: 'bottom',
+            panelClass: ['error-snackbar']
+          });
         }
       });
   }
